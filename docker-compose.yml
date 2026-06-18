@@ -1,0 +1,66 @@
+# KidecoIQ — Docker Compose
+# ===========================
+# 3 services: postgres (PostGIS), backend (FastAPI), frontend (Next.js)
+#
+# Usage:
+#   docker compose up --build        # First time / after changes
+#   docker compose up                # Subsequent runs
+#   docker compose down              # Stop
+#   docker compose down -v           # Stop + delete database volume (fresh start)
+
+services:
+
+  # ── PostgreSQL 16 + PostGIS ───────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: kidecoiq-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kideco
+      POSTGRES_PASSWORD: kideco
+      POSTGRES_DB: kidecoiq
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kideco -d kidecoiq"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend API (FastAPI) ─────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: kidecoiq-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://kideco:kideco@postgres:5432/kidecoiq
+      JWT_SECRET_KEY: kideco-docker-secret-change-in-production
+      DEBUG: "false"
+      CORS_ORIGINS: '["*"]'
+    ports:
+      - "8000:8000"
+
+  # ── Frontend (Next.js) ────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        API_URL: http://backend:8000
+    container_name: kidecoiq-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+    driver: local

@@ -1,0 +1,38 @@
+# ── Sama seperti .gitignore ──────────────────────────
+# Docker build context harus sekecil mungkin
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# Node
+node_modules/
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Dokumen non-esensial (tidak dibutuhkan runtime)
+SUBMISSION.md
+PROMPT_PLAYBOOK.md
+PROGRESS.md
+TASKS.md
+opencode.json

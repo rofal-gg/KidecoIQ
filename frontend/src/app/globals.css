@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  --sidebar-width: 240px;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900 antialiased;
+}
+
+/* Leaflet overrides */
+.leaflet-container {
+  @apply rounded-lg;
+  z-index: 0;
+}

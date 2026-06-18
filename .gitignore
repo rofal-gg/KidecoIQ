@@ -1,0 +1,56 @@
+# ── Environment & Secrets (⚠️ JANGAN COMMIT) ──────────
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+*.key
+*.pem
+*.crt
+
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
+*.coverage.*
+
+# ── Node / Frontend ───────────────────────────────────
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# ── IDE & Editor ──────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Docker ────────────────────────────────────────────
+.docker/
+
+# ── OS ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+
+# ── Large generated files (optional) ──────────────────
+# Uncomment jika data samples terlalu besar untuk git:
+# data/satellite_samples/*.tif
+# data/fleet_dummy/*.csv
