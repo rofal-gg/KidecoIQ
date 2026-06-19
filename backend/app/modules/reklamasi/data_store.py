@@ -50,6 +50,59 @@ HISTORY_DATES = [
     date(2026, 6, 18),  # current
 ]
 
+# Geographic bounds for each zone (southwest_lat, southwest_lng, northeast_lat, northeast_lng)
+# Mapped from 20×20 raster quadrants to Roto Samurangau pilot area coordinates
+ZONE_BOUNDS = [
+    (-1.08, 116.68, -1.06, 116.71),  # Sektor A (top-left quadrant)
+    (-1.08, 116.71, -1.06, 116.74),  # Sektor B (top-right quadrant)
+    (-1.11, 116.68, -1.08, 116.71),  # Sektor C (bottom-left quadrant)
+    (-1.11, 116.71, -1.08, 116.74),  # Sektor D (bottom-right quadrant)
+    (-1.10, 116.69, -1.07, 116.73),  # Buffer Zone (center cross-section)
+]
+
+# ── Trend prediction constants ──────────────────────────────────
+
+TREND_SLOPE_THRESHOLD: float = 0.005  # minimum slope to be considered "increasing"
+TREND_DAYS: int = 30  # prediction horizon in days
+
+
+def predict_ndvi_trend(history_values: list[float]) -> str:
+    """
+    Predict NDVI trend direction using linear regression (polyfit degree 1).
+
+    Uses the last 3 history points (or all available if fewer) to fit a
+    straight line, then evaluates the slope. The prediction is for
+    *TREND_DAYS* (30) days into the future.
+
+    Args:
+        history_values: Sorted list of historical NDVI means (earliest first).
+
+    Returns:
+        One of ``"meningkat"``, ``"menurun"``, or ``"stabil"``.
+    """
+    if len(history_values) < 2:
+        return "stabil"
+
+    x = np.arange(len(history_values), dtype=np.float64)
+    y = np.array(history_values, dtype=np.float64)
+
+    # Linear regression degree 1:  y = slope * x + intercept
+    with np.errstate(all="raise"):
+        try:
+            coeffs = np.polyfit(x, y, deg=1)
+        except (np.linalg.LinAlgError, FloatingPointError):
+            return "stabil"
+
+    slope = coeffs[0]  # slope of the fitted line
+
+    if slope > TREND_SLOPE_THRESHOLD:
+        return "meningkat"
+    elif slope < -TREND_SLOPE_THRESHOLD:
+        return "menurun"
+    else:
+        return "stabil"
+
+
 NOW = datetime.now(timezone.utc)
 
 # ── In-memory storage ────────────────────────────────────────
@@ -129,6 +182,16 @@ def _init_data():
         area_values = [45.2, 38.7, 52.1, 28.5, 12.3]  # hectares per zone
         ndvi_current = stats["ndvi_mean"]
 
+        bounds = ZONE_BOUNDS[i] if i < len(ZONE_BOUNDS) else (-1.09, 116.70, -1.08, 116.72)
+
+        # Generate historical data first (needed for trend prediction)
+        history = _generate_history(zone_id, ndvi_current, status, stats["vegetation_cover_pct"])
+        _zone_history[zone_id] = history
+
+        # Compute trend prediction from historical NDVI values
+        history_ndvi_values = [h["ndvi_mean"] for h in history]
+        trend_prediction = predict_ndvi_trend(history_ndvi_values)
+
         zone = {
             "id": zone_id,
             "name": ZONE_NAMES[i] if i < len(ZONE_NAMES) else f"Zone {i+1}",
@@ -136,13 +199,14 @@ def _init_data():
             "ndvi_latest": round(ndvi_current, 4),
             "area_ha": area_values[i] if i < len(area_values) else 10.0,
             "vegetation_cover_pct": stats["vegetation_cover_pct"],
+            "trend_prediction": trend_prediction,
             "updated_at": NOW,
+            "southwest_lat": bounds[0],
+            "southwest_lng": bounds[1],
+            "northeast_lat": bounds[2],
+            "northeast_lng": bounds[3],
         }
         _zones.append(zone)
-
-        # Generate historical data with slight variation
-        history = _generate_history(zone_id, ndvi_current, status, stats["vegetation_cover_pct"])
-        _zone_history[zone_id] = history
 
     return _zones
 

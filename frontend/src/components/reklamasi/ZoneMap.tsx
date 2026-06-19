@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useCallback } from "react";
 import { MapContainer, TileLayer, Rectangle, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import type { ZoneResponse } from "@/types/reklamasi";
@@ -11,29 +11,6 @@ interface ZoneMapProps {
   onSelectZone: (zone: ZoneResponse) => void;
 }
 
-const ZONE_BOUNDS: Record<string, L.LatLngBoundsExpression> = {
-  "11111111-1111-1111-1111-111111111111": [
-    [-1.08, 116.68],
-    [-1.06, 116.71],
-  ],
-  "22222222-2222-2222-2222-222222222222": [
-    [-1.08, 116.71],
-    [-1.06, 116.74],
-  ],
-  "33333333-3333-3333-3333-333333333333": [
-    [-1.11, 116.68],
-    [-1.08, 116.71],
-  ],
-  "44444444-4444-4444-4444-444444444444": [
-    [-1.11, 116.71],
-    [-1.08, 116.74],
-  ],
-  "55555555-5555-5555-5555-555555555555": [
-    [-1.10, 116.69],
-    [-1.07, 116.73],
-  ],
-};
-
 const STATUS_COLORS: Record<string, string> = {
   vegetasi_sehat: "#22c55e",
   vegetasi_stres: "#eab308",
@@ -41,25 +18,39 @@ const STATUS_COLORS: Record<string, string> = {
   air: "#3b82f6",
 };
 
-function MapController({ selectedId }: { selectedId: string | null }) {
+function getBounds(zone: ZoneResponse): L.LatLngBoundsExpression {
+  return [
+    [zone.southwest_lat, zone.southwest_lng],
+    [zone.northeast_lat, zone.northeast_lng],
+  ];
+}
+
+function MapController({ zones, selectedId }: { zones: ZoneResponse[]; selectedId: string | null }) {
   const map = useMap();
 
   useEffect(() => {
     if (selectedId) {
-      const bounds = ZONE_BOUNDS[selectedId];
-      if (bounds) {
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      const zone = zones.find((z) => z.id === selectedId);
+      if (zone) {
+        map.fitBounds(getBounds(zone), { padding: [50, 50], maxZoom: 16 });
+        return;
       }
-    } else {
-      map.setView([-1.09, 116.71], 13);
     }
-  }, [selectedId, map]);
+    map.setView([-1.09, 116.71], 13);
+  }, [selectedId, zones, map]);
 
   return null;
 }
 
 export default function ZoneMap({ zones, selectedId, onSelectZone }: ZoneMapProps) {
   const center: L.LatLngExpression = useMemo(() => [-1.09, 116.71], []);
+
+  const handleClick = useCallback(
+    (zone: ZoneResponse) => {
+      onSelectZone(zone);
+    },
+    [onSelectZone],
+  );
 
   return (
     <MapContainer
@@ -73,12 +64,10 @@ export default function ZoneMap({ zones, selectedId, onSelectZone }: ZoneMapProp
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
-      <MapController selectedId={selectedId} />
+      <MapController zones={zones} selectedId={selectedId} />
 
       {zones.map((zone) => {
-        const bounds = ZONE_BOUNDS[zone.id];
-        if (!bounds) return null;
-
+        const bounds = getBounds(zone);
         const color = STATUS_COLORS[zone.status] || "#6b7280";
         const isSelected = selectedId === zone.id;
 
@@ -93,7 +82,7 @@ export default function ZoneMap({ zones, selectedId, onSelectZone }: ZoneMapProp
               fillOpacity: isSelected ? 0.35 : 0.2,
             }}
             eventHandlers={{
-              click: () => onSelectZone(zone),
+              click: () => handleClick(zone),
             }}
           >
             <Tooltip direction="center" permanent={false}>

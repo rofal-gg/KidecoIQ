@@ -74,7 +74,10 @@ class TestGetZones:
         resp = client.get("/reklamasi/zones")
         data = resp.json()
         required_fields = {"id", "name", "status", "ndvi_latest", "area_ha",
-                           "vegetation_cover_pct", "updated_at"}
+                           "vegetation_cover_pct", "trend_prediction",
+                           "updated_at",
+                           "southwest_lat", "southwest_lng",
+                           "northeast_lat", "northeast_lng"}
         for z in data:
             assert required_fields.issubset(z.keys()), (
                 f"Missing fields: {required_fields - z.keys()}"
@@ -118,6 +121,17 @@ class TestGetZones:
         statuses = {z["status"] for z in data}
         expected = {"air", "lahan_kosong", "vegetasi_stres", "vegetasi_sehat"}
         assert statuses == expected, f"Missing statuses: {expected - statuses}"
+
+    def test_trend_prediction_valid_values(self, client):
+        """trend_prediction harus salah satu dari: meningkat, menurun, stabil."""
+        resp = client.get("/reklamasi/zones")
+        data = resp.json()
+        valid_trends = {"meningkat", "menurun", "stabil"}
+        for z in data:
+            assert z["trend_prediction"] in valid_trends, (
+                f"Zone {z['id']}: trend_prediction='{z['trend_prediction']}' "
+                f"not in {valid_trends}"
+            )
 
 
 # ══════════════════════════════════════════════════════════════

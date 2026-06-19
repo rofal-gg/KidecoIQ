@@ -120,6 +120,105 @@ def classify_to_label(ndvi: np.ndarray) -> np.ndarray:
     return labels
 
 
+# ── RandomForest classifier (upgrade path) ──────────────────────
+
+def _generate_training_data(
+    n_samples_per_class: int = 100,
+    seed: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Generate synthetic NDVI training data for all 4 vegetation classes.
+
+    Each class is modeled as a normal distribution around a representative
+    NDVI mean with small standard deviation, mimicking real-world variation.
+
+    Args:
+        n_samples_per_class: Number of training samples per class.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        (X, y):
+            X: shape (n_samples, 1) — NDVI values.
+            y: shape (n_samples,) — integer class codes (0..3).
+    """
+    rng = np.random.default_rng(seed)
+
+    # (class_code, mean_ndvi, std_dev)
+    class_params = [
+        (CLASS_AIR, -0.30, 0.15),              # air around -0.3
+        (CLASS_LAHAN_KOSONG, 0.12, 0.08),      # bare land around 0.12
+        (CLASS_VEGETASI_STRES, 0.35, 0.06),    # stressed around 0.35
+        (CLASS_VEGETASI_SEHAT, 0.60, 0.08),    # healthy around 0.60
+    ]
+
+    X_list: list[np.ndarray] = []
+    y_list: list[np.ndarray] = []
+
+    for class_code, mean, std in class_params:
+        samples = rng.normal(mean, std, n_samples_per_class)
+        samples = np.clip(samples, -1.0, 1.0)  # stay within NDVI bounds
+        X_list.append(samples)
+        y_list.append(np.full(n_samples_per_class, class_code, dtype=np.int8))
+
+    X = np.concatenate(X_list).reshape(-1, 1)
+    y = np.concatenate(y_list)
+    return X, y
+
+
+def classify_with_random_forest(
+    ndvi_array: np.ndarray,
+    n_samples_per_class: int = 100,
+    seed: int = 42,
+) -> tuple[np.ndarray, "RandomForestClassifier"]:  # noqa: F821
+    """
+    Classify NDVI array using RandomForest as an alternative to threshold.
+
+    This is an **upgrade path** — for MVP, threshold classification remains
+    the default. RandomForest becomes the preferred method once real labeled
+    field data is available to replace the synthetic training data.
+
+    Training data: synthetic NDVI samples representing all 4 classes,
+    generated via :func:`_generate_training_data`.
+
+    Args:
+        ndvi_array: 2D numpy array of NDVI values in [-1, 1].
+        n_samples_per_class: Training samples per class (total samples = 4 × N).
+        seed: Random seed for reproducibility.
+
+    Returns:
+        (label_array, trained_model):
+            - label_array: 2D string array with shape matching ndvi_array,
+              containing labels like ``"vegetasi_sehat"``.
+            - trained_model: Fitted ``RandomForestClassifier`` instance,
+              ready for further use or inspection.
+    """
+    from sklearn.ensemble import RandomForestClassifier
+
+    # 1. Generate synthetic training data
+    X_train, y_train = _generate_training_data(n_samples_per_class, seed)
+
+    # 2. Train the model
+    model = RandomForestClassifier(
+        n_estimators=50,
+        max_depth=5,
+        random_state=seed,
+        class_weight="balanced",
+    )
+    model.fit(X_train, y_train)
+
+    # 3. Predict on input
+    flat_input = ndvi_array.ravel().reshape(-1, 1)
+    flat_pred = model.predict(flat_input)
+
+    # 4. Map integer predictions to string labels
+    label_array = np.array(
+        [CLASS_MAP.get(int(c), "unknown") for c in flat_pred],
+        dtype="<U16",
+    ).reshape(ndvi_array.shape)
+
+    return label_array, model
+
+
 # ── Convenience: compute + label in one call ──────────────────
 
 def process_bands(red: np.ndarray, nir: np.ndarray) -> dict:

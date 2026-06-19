@@ -46,8 +46,26 @@ INJECTED_ANOMALIES = [
     {"unit": "HD-004", "shift_start": 30, "shift_end": 31, "idle_ratio": 73.0, "fuel": 45.0},
 ]
 
+# Per-unit status probability profiles (active%, idle%, maintenance%)
+# Menentukan kecenderungan status tiap unit agar dashboard meaningful:
+# - Sebagian besar unit mostly active
+# - EX-001 punya idle tendency → jadi "idle" di ringkasan
+# - WD-001, HD-005 punya maintenance tendency → jadi "maintenance" di ringkasan
+UNIT_STATUS_PROFILES = [
+    (0.94, 0.04, 0.02),  # HD-001: mostly active
+    (0.94, 0.04, 0.02),  # HD-002: mostly active
+    (0.94, 0.04, 0.02),  # HD-003: mostly active
+    (0.94, 0.04, 0.02),  # HD-004: mostly active
+    (0.80, 0.10, 0.10),  # HD-005: maintenance tendency
+    (0.40, 0.60, 0.00),  # EX-001: high idle tendency → pasti "idle" (0% maint, 60% idle > 15% threshold)
+    (0.94, 0.04, 0.02),  # EX-002: mostly active
+    (0.94, 0.04, 0.02),  # EX-003: mostly active
+    (0.75, 0.05, 0.20),  # WD-001: maintenance tendency
+    (0.94, 0.04, 0.02),  # WD-002: mostly active
+]
+
 # Column names in the generated CSV
-CSV_COLUMNS = ["unit_id", "shift", "idle_ratio", "fuel_consumption", "operating_hours"]
+CSV_COLUMNS = ["unit_id", "shift", "idle_ratio", "fuel_consumption", "operating_hours", "status"]
 
 # ── Helper to find project root ──────────────────────────────
 
@@ -91,6 +109,12 @@ def generate_fleet_csv(
 
     for unit_idx in range(num_units):
         unit_id, model = UNIT_DEFINITIONS[unit_idx]
+        # Use per-unit status profile (fallback to mostly active if not defined)
+        if unit_idx < len(UNIT_STATUS_PROFILES):
+            active_pct, idle_pct, maint_pct = UNIT_STATUS_PROFILES[unit_idx]
+        else:
+            active_pct, idle_pct, maint_pct = (0.94, 0.04, 0.02)
+
         for shift in range(1, num_shifts + 1):
             # Normal ranges
             idle_ratio = rng.uniform(5.0, 25.0)
@@ -106,7 +130,16 @@ def generate_fleet_csv(
                         fuel_consumption = anomaly["fuel"] + rng.uniform(-3.0, 3.0)
                     break
 
-            rows.append([unit_id, shift, round(idle_ratio, 2), round(fuel_consumption, 2), round(operating_hours, 2)])
+            # Assign operational status per shift based on per-unit profile
+            status_roll = rng.uniform(0.0, 1.0)
+            if status_roll < active_pct:
+                status = "active"
+            elif status_roll < active_pct + idle_pct:
+                status = "idle"
+            else:
+                status = "maintenance"
+
+            rows.append([unit_id, shift, round(idle_ratio, 2), round(fuel_consumption, 2), round(operating_hours, 2), status])
 
     df = pd.DataFrame(rows, columns=CSV_COLUMNS)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -118,12 +151,47 @@ def generate_fleet_csv(
 #  2. AGGREGATION
 # ══════════════════════════════════════════════════════════════
 
+def _determine_unit_status(shift_statuses: pd.Series) -> str:
+    """
+    Determine overall operational status for a unit from all its shift statuses.
+
+    Rules (berdasarkan kondisi terkini unit):
+    1. Jika ada shift "maintenance" dalam 5 shift terakhir → "maintenance"
+       (unit sedang atau baru saja menjalani perawatan)
+    2. Jika proporsi shift "idle" > 15% dari total shift → "idle"
+       (unit cukup banyak menganggur, threshold 15% = ~9 shift dari 60)
+    3. Selain itu → "active" (unit beroperasi normal)
+
+    Args:
+        shift_statuses: Series of status strings per shift for one unit.
+
+    Returns:
+        "active", "idle", or "maintenance".
+    """
+    statuses = shift_statuses.tolist()
+    if not statuses:
+        return "active"
+
+    # Rule 1: Recent maintenance → maintenance
+    last_5 = statuses[-5:] if len(statuses) >= 5 else statuses
+    if "maintenance" in last_5:
+        return "maintenance"
+
+    # Rule 2: Significant idle proportion → idle
+    idle_pct = statuses.count("idle") / len(statuses) * 100
+    if idle_pct > 15:
+        return "idle"
+
+    # Rule 3: Default → active
+    return "active"
+
+
 def aggregate_shifts(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate per-unit shift data into summary features for anomaly detection.
 
     Returns DataFrame with columns:
-        unit_id, idle_ratio_avg, fuel_avg, total_hours, num_shifts
+        unit_id, idle_ratio_avg, fuel_avg, total_hours, num_shifts, status
     """
     agg = df.groupby("unit_id").agg(
         idle_ratio_avg=("idle_ratio", "mean"),
@@ -131,6 +199,10 @@ def aggregate_shifts(df: pd.DataFrame) -> pd.DataFrame:
         total_hours=("operating_hours", "sum"),
         num_shifts=("shift", "count"),
     ).reset_index()
+
+    # Determine unit-level operational status from shift statuses
+    status_series = df.groupby("unit_id")["status"].apply(_determine_unit_status).reset_index(name="status")
+    agg = agg.merge(status_series, on="unit_id")
 
     agg["idle_ratio_avg"] = agg["idle_ratio_avg"].round(2)
     agg["fuel_avg"] = agg["fuel_avg"].round(2)

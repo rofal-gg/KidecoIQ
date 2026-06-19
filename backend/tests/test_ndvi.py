@@ -299,3 +299,96 @@ class TestEndToEndRaster:
         red, nir = synthetic_rasters
         ndvi_arr = ndvi.compute_ndvi(red, nir)
         assert not np.any(np.isnan(ndvi_arr))
+
+
+# ══════════════════════════════════════════════════════════════
+#  TEST GROUP 6: RandomForest Classifier
+# ══════════════════════════════════════════════════════════════
+
+class TestRandomForestClassifier:
+    """Validasi fungsi classify_with_random_forest()."""
+
+    @pytest.fixture(scope="class")
+    def ndvi_4region(self) -> np.ndarray:
+        """Generate NDVI array with 4 distinct regions (like synthetic raster)."""
+        red, nir = _make_synthetic_arrays(width=20, height=20, seed=42)
+        return ndvi.compute_ndvi(red, nir)
+
+    def test_training_runs_successfully(self, ndvi_4region):
+        """Training dan prediksi berjalan tanpa error."""
+        labels, model = ndvi.classify_with_random_forest(
+            ndvi_4region, n_samples_per_class=50, seed=42,
+        )
+        assert labels is not None
+        assert model is not None
+
+    def test_prediction_shape_matches_input(self, ndvi_4region):
+        """Shape label harus sama persis dengan shape input NDVI."""
+        h, w = ndvi_4region.shape
+        labels, _ = ndvi.classify_with_random_forest(
+            ndvi_4region, n_samples_per_class=50, seed=42,
+        )
+        assert labels.shape == (h, w), (
+            f"Expected ({h}, {w}), got {labels.shape}"
+        )
+
+    def test_all_four_classes_appear(self, ndvi_4region):
+        """Keempat kelas harus muncul di hasil prediksi."""
+        labels, _ = ndvi.classify_with_random_forest(
+            ndvi_4region, n_samples_per_class=50, seed=42,
+        )
+        unique = set(np.unique(labels))
+        expected = {"air", "lahan_kosong", "vegetasi_stres", "vegetasi_sehat"}
+        missing = expected - unique
+        assert not missing, (
+            f"RF classifier missing classes: {missing}. Found: {unique}"
+        )
+
+    def test_predicted_labels_are_valid(self, ndvi_4region):
+        """Semua label harus dari set VALID_LABELS."""
+        labels, _ = ndvi.classify_with_random_forest(
+            ndvi_4region, n_samples_per_class=50, seed=42,
+        )
+        unique = set(np.unique(labels))
+        invalid = unique - VALID_LABELS
+        assert not invalid, f"Invalid labels found: {invalid}"
+
+    def test_known_value_healthy(self):
+        """NDVI=0.6 (healthy) harus terklasifikasi sebagai vegetasi_sehat."""
+        arr = np.array([[0.6]], dtype=np.float64)
+        labels, _ = ndvi.classify_with_random_forest(arr, seed=42)
+        assert labels[0, 0] == "vegetasi_sehat", (
+            f"NDVI=0.6 expected vegetasi_sehat, got {labels[0, 0]}"
+        )
+
+    def test_known_value_air(self):
+        """NDVI=-0.5 (air) harus terklasifikasi sebagai air."""
+        arr = np.array([[-0.5]], dtype=np.float64)
+        labels, _ = ndvi.classify_with_random_forest(arr, seed=42)
+        assert labels[0, 0] == "air", (
+            f"NDVI=-0.5 expected air, got {labels[0, 0]}"
+        )
+
+    def test_returned_model_is_fitted(self, ndvi_4region):
+        """Model yang dikembalikan harus sudah di-fit (bisa predict)."""
+        _, model = ndvi.classify_with_random_forest(
+            ndvi_4region, n_samples_per_class=50, seed=42,
+        )
+        # A fitted model should be able to predict on new data
+        test_input = np.array([[0.4]])
+        pred = model.predict(test_input)
+        assert pred[0] in (0, 1, 2, 3), f"Unexpected prediction: {pred[0]}"
+
+    def test_different_seed_gives_slightly_different_results(self, ndvi_4region):
+        """Seed berbeda boleh menghasilkan prediksi yang sedikit berbeda."""
+        labels1, _ = ndvi.classify_with_random_forest(
+            ndvi_4region, n_samples_per_class=50, seed=42,
+        )
+        labels2, _ = ndvi.classify_with_random_forest(
+            ndvi_4region, n_samples_per_class=50, seed=999,
+        )
+        # They should still be highly similar but not necessarily identical
+        agreement = np.mean(labels1 == labels2)
+        assert agreement >= 0.80, (
+            f"Different seeds gave low agreement: {agreement:.2%}"
+        )

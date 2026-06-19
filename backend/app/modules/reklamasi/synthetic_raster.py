@@ -5,6 +5,29 @@ Menghasilkan 2 band GeoTIFF sintetis (Red & NIR) ukuran kecil
 untuk validasi pipeline NDVI. BUKAN data final — hanya untuk
 pengujian dan development.
 
+.. important::
+
+   **Drop-in replacement untuk citra Sentinel-2 asli**
+
+   File ini adalah *synthetic stand-in* yang memungkinkan development
+   dan testing pipeline NDVI tanpa harus mengunduh citra satelit nyata.
+   
+   Untuk production, fungsi :func:`load_band` cukup diubah agar membaca
+   file GeoTIFF dari Google Earth Engine export (atau sumber Sentinel-2
+   lainnya), tanpa perubahan pada pipeline NDVI di atasnya (``ndvi.py``).
+   
+   Dengan kata lain::
+   
+       # Development (sekarang):
+       red = load_band("data/satellite_samples/band4_red.tif")   # sintetis
+       
+       # Production (cukup ganti path):
+       red = load_band("data/sentinel_scenes/2026-06-01_B04.tif")  # asli
+
+   Semua fungsi di ``ndvi.py`` (``compute_ndvi``, ``classify_ndvi``,
+   ``process_bands``, dll.) TIDAK perlu diubah — mereka bekerja pada
+   numpy array yang identik strukturnya.
+
 Region layout (20×20 pixels):
     ┌────────────┬────────────┐
     │  Region 1  │  Region 2  │

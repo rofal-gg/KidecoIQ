@@ -7,7 +7,12 @@ export interface ZoneResponse {
   ndvi_latest: number;
   area_ha: number;
   vegetation_cover_pct: number;
+  trend_prediction: string;
   updated_at: string;
+  southwest_lat: number;
+  southwest_lng: number;
+  northeast_lat: number;
+  northeast_lng: number;
 }
 
 export interface HistoryPoint {

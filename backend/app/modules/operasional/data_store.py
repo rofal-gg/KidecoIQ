@@ -65,7 +65,7 @@ def get_fleet_summary() -> list[dict]:
         result.append({
             "unit_id": unit_id,
             "model": model,
-            "status": "active",  # MVP: all active for now
+            "status": r["status"],
             "idle_ratio_avg": r["idle_ratio_avg"],
             "fuel_avg": r["fuel_avg"],
             "total_hours": r["total_hours"],

@@ -23,14 +23,19 @@ kideco-iq/
 git clone https://github.com/rofal-gg/KidecoIQ.git kideco-iq
 cd kideco-iq
 
-# 2. Build & jalankan semua service
-docker compose up --build
+# 2. Build & jalankan semua service (pertama kali atau setelah perubahan)
+docker compose up --build -d
 
 # 3. Buka browser: http://localhost:3000
 #
 #    Dashboard langsung bisa dipakai — data otomatis terisi:
 #    - Modul Reklamasi: 5 zona reklamasi dengan NDVI + status
 #    - Modul Operasional: 10 unit fleet + deteksi anomali + alert
+#
+#    Akses langsung API:
+#    - Health check: http://localhost:8000/health
+#    - Reklamasi API: http://localhost:8000/reklamasi/zones
+#    - Operasional API: http://localhost:8000/operasional/fleet
 ```
 
 **Perintah penting lainnya:**

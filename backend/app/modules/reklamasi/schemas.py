@@ -17,7 +17,12 @@ class ZoneResponse(BaseModel):
     ndvi_latest: float = Field(..., ge=-1.0, le=1.0)
     area_ha: float = Field(..., ge=0)
     vegetation_cover_pct: float = Field(..., ge=0.0, le=100.0)
+    trend_prediction: str = Field(description="Prediksi tren NDVI 30 hari: meningkat / menurun / stabil")
     updated_at: datetime
+    southwest_lat: float = Field(..., ge=-90, le=90, description="Latitude sudut barat-daya bounding box zona")
+    southwest_lng: float = Field(..., ge=-180, le=180, description="Longitude sudut barat-daya bounding box zona")
+    northeast_lat: float = Field(..., ge=-90, le=90, description="Latitude sudut timur-laut bounding box zona")
+    northeast_lng: float = Field(..., ge=-180, le=180, description="Longitude sudut timur-laut bounding box zona")
 
 
 class HistoryPoint(BaseModel):

@@ -453,3 +453,100 @@ Ringkasan checklist demo readiness:
 - Pesan untuk agent lain:
   - **lead**: SPEC.md Decision Log sudah diisi retroaktif.
   - **all**: Tidak ada perubahan kontrak API — SUBMISSION.md tetap valid.
+
+### [2026-06-19 02:00] agent: lead
+- Tugas dari TASKS.md yang dikerjakan: Bug fix — zone rectangles tidak muncul di peta reklamasi (post-Phase 4)
+- Yang sudah selesai:
+  - **Diagnosis**: Akar masalah ditemukan — backend `data_store.py` generate UUID random (`uuid.uuid4()`) tiap startup, sementara `ZoneMap.tsx` punya `ZONE_BOUNDS` hardcoded dengan UUID tetap. ID tidak pernah match → `if (!bounds) return null` → 0 rectangle.
+  - **Fix (Opsi B)**: Backend sekarang kirim data bounds koordinat (`southwest_lat`, `southwest_lng`, `northeast_lat`, `northeast_lng`) di response `GET /reklamasi/zones`, frontend baca bounds langsung dari data API.
+  - File berubah:
+    - `backend/app/modules/reklamasi/schemas.py` — tambah 4 field bounds ke `ZoneResponse`
+    - `backend/app/modules/reklamasi/data_store.py` — tambah `ZONE_BOUNDS` constant + inject ke tiap zone dict
+    - `backend/tests/test_reklamasi_api.py` — update `required_fields` set
+    - `frontend/src/types/reklamasi.ts` — tambah 4 field bounds ke interface
+    - `frontend/src/components/reklamasi/ZoneMap.tsx` — hapus `ZONE_BOUNDS` hardcoded, `MapController` cari zone by ID di array, `getBounds()` dari data API
+  - **Verifikasi**: 94/94 tests passing ✅, endpoint `/reklamasi/zones` return bounds ✅
+- Keputusan/asumsi baru: Koordinat zona sekarang dikirim backend sebagai data API (bukan hardcoded di frontend). Ini memutus ketergantungan pada UUID tetap dan memungkinkan zona memiliki geometri berbeda di masa depan.
+- Yang BELUM selesai / blocker: Tidak ada.
+- Pesan untuk agent lain:
+  - **frontend**: `ZoneResponse` sekarang punya 4 field baru (`southwest_lat`, `southwest_lng`, `northeast_lat`, `northeast_lng`). Jika ada komponen lain yang pakai `ZONE_BOUNDS` hardcoded, ganti pakai data dari API.
+  - **qa-reviewer**: Ada perubahan minor di kontrak API (4 field baru di ZoneResponse). API contract masih backward-compatible — field baru ditambahkan, tidak ada yang dihapus.
+
+### [2026-06-19 02:30] agent: lead
+- Tugas dari TASKS.md yang dikerjakan: Bug fix — Ringkasan Fleet di dashboard Operasional selalu idle=0 dan maintenance=0
+- Yang sudah selesai:
+  - **Diagnosis**: Backend `data_store.py` hardcode `"status": "active"` untuk semua unit. CSV generator tidak punya kolom `status`. Frontend render jujur dari data → idle=0, maintenance=0.
+  - **Fix**:
+    1. `fleet_data.py` — tambah kolom `status` di CSV generator dengan per-unit probability profiles (`UNIT_STATUS_PROFILES`). EX-001: 60% idle → jadi "idle". HD-005/WD-001: maintenance tendency → jadi "maintenance". Lainnya: mostly "active".
+    2. `fleet_data.py` — tambah `_determine_unit_status()`: maintenance jika ada di 5 shift terakhir, idle jika >15% shift idle, sisanya active.
+    3. `fleet_data.py` — `aggregate_shifts()` sekarang include `status` di output via merge.
+    4. `data_store.py:68` — ganti `"status": "active"` (hardcode) → `r["status"]` dari pipeline.
+  - **Verifikasi**: 94/94 tests passing ✅. Endpoint return distribusi: Active 6, Idle 1 (EX-001), Maintenance 3 (HD-005, WD-001, WD-002) ✅.
+- File yang diubah:
+  - `backend/app/modules/operasional/fleet_data.py` — tambah `UNIT_STATUS_PROFILES`, `_determine_unit_status()`, update `CSV_COLUMNS`, `generate_fleet_csv()`, `aggregate_shifts()`
+  - `backend/app/modules/operasional/data_store.py` — ganti hardcode status
+- Keputusan baru: Per-unit status profile memungkinkan variasi status yang deterministik dan meaningful untuk demo. EX-001 sengaja dibuat 0% maintenance agar tidak kena override dan selalu "idle".
+- Yang BELUM selesai: Tidak ada.
+- Pesan untuk agent lain: Tidak ada perubahan kontrak API — field `status` sudah ada di `FleetUnitResponse` sejak awal.
+
+### [2026-06-19 03:00] agent: lead
+- Tugas dari TASKS.md yang dikerjakan: #15 (Pydantic V2 deprecation — perbaikan minor dari laporan QA)
+- Yang sudah selesai:
+  - **Verifikasi**: File `backend/app/core/config.py` SUDAH menggunakan `model_config = SettingsConfigDict(...)` dari `pydantic_settings` — tidak ada `class Config` yang perlu diganti.
+  - Perbaikan ini sudah diterapkan di sesi sebelumnya (kemungkinan oleh QA reviewer saat mengisi Decision Log retroaktif).
+  - `pydantic-settings>=2.0.0` sudah tercantum di `backend/requirements.txt`.
+  - **94/94 tests PASSED** (0 Pydantic deprecation warnings). Satu-satunya warning adalah `StarletteDeprecationWarning` terkait `httpx` di test client — tidak terkait.
+- File yang diubah/dibuat: Tidak ada perubahan — fix sudah ada.
+- Keputusan/asumsi baru: Tidak ada.
+- Yang BELUM selesai / blocker: Tidak ada. Semua bersih.
+- Pesan untuk agent lain: Pydantic V2 deprecation sudah tidak ada. Test suite clean.
+
+### [2026-06-19 04:00] agent: backend-reklamasi
+- Tugas dari TASKS.md yang dikerjakan: 3 gap proposal KIC — RandomForest classifier, trend prediction NDVI, docstring drop-in replacement
+- Yang sudah selesai:
+  - **Gap 1 — RandomForest classifier**: Tambah fungsi `classify_with_random_forest()` di `ndvi.py` sebagai upgrade path opsional dari threshold. Training dari data sintetis 4 kelas (100 sampel/kelas). Fungsi return (label_array, trained_model). 8 unit test baru (test training, shape, classes, labels, known values, fitted model, seed reproducibility).
+  - **Gap 2 — Trend prediction NDVI**: Tambah fungsi `predict_ndvi_trend()` di `data_store.py` menggunakan numpy polyfit derajat 1 pada 3 titik NDVI historis. Threshold slope ±0.005 untuk "meningkat"/"menurun"/"stabil". Field `trend_prediction` ditambahkan ke `ZoneResponse` schema, dihitung saat bootstrap di `_init_data()`, dan dikenali di frontend TypeScript interface. 1 test baru untuk validasi nilai trend.
+  - **Gap 3 — Docstring drop-in replacement**: Module docstring di `synthetic_raster.py` diperluas dengan penjelasan eksplisit bahwa ini adalah drop-in replacement untuk Sentinel-2 asli — cukup ganti `load_band()` path file tanpa perubahan pipeline NDVI.
+- File yang diubah/dibuat:
+  - `backend/app/modules/reklamasi/ndvi.py` — tambah `_generate_training_data()`, `classify_with_random_forest()`
+  - `backend/app/modules/reklamasi/data_store.py` — tambah `predict_ndvi_trend()`, update `_init_data()` untuk `trend_prediction`
+  - `backend/app/modules/reklamasi/schemas.py` — tambah field `trend_prediction` ke `ZoneResponse`
+  - `backend/app/modules/reklamasi/synthetic_raster.py` — perluas module docstring
+  - `backend/tests/test_ndvi.py` — tambah `TestRandomForestClassifier` (8 test)
+  - `backend/tests/test_reklamasi_api.py` — update `required_fields` + tambah `test_trend_prediction_valid_values`
+  - `frontend/src/types/reklamasi.ts` — tambah `trend_prediction` ke interface
+- Keputusan/asumsi baru yang diambil:
+  - RandomForest classifier menggunakan training data sintetis 100 sampel/kelas dari distribusi normal di sekitar mean NDVI tipikal (air=-0.3, lahan_kosong=0.12, vegetasi_stres=0.35, vegetasi_sehat=0.60). Ini adalah demplot — saat data lapangan berlabel tersedia, cukup ganti `_generate_training_data()` dengan data asli.
+  - Threshold slope trend: ±0.005 dipilih empiris untuk menghindari flag "meningkat"/"menurun" pada fluktuasi noise kecil. Dapat dikalibrasi ulang.
+  - Trend prediction menggunakan numpy polyfit (bukan scikit-learn) karena hanya regresi linear sederhana — tidak perlu dependensi tambahan.
+- Yang BELUM selesai / blocker: Tidak ada.
+- Test: **103/103 PASSED** (94 old + 8 RF + 1 trend_prediction).
+- Pesan untuk agent lain:
+  - **frontend**: `ZoneResponse` sekarang punya 1 field baru: `trend_prediction` (string: "meningkat"|"menurun"|"stabil"). Update komponen yang menampilkan data zona jika perlu.
+  - **lead**: Ada 2 entri baru di SPEC.md Decision Log (RandomForest training strategy, trend prediction threshold).
+  - **presenter**: SUBMISSION.md Bagian B (Q&A) perlu diperbarui untuk 2 fitur baru: RF classifier bisa dijawab sebagai "upgrade path demo yang siap diganti data asli", trend prediction sebagai "early warning sederhana berbasis regresi linear".
+
+### [2026-06-19 05:30] agent: devops
+- Tugas dari TASKS.md yang dikerjakan: #14 (verifikasi Docker end-to-end)
+- Yang sudah selesai:
+  - **Step 1 — `docker compose down -v`**: ✅ PASS — Semua container (postgres, backend, frontend), volume (pgdata), dan network berhasil dihapus. Kondisi bersih total.
+  - **Step 2 — `docker compose up --build -d`**: ✅ PASS — Build berhasil untuk backend (Python 3.11-slim + GDAL + dependencies) dan frontend (Node 22-alpine, multi-stage: deps → builder → runner). PostGIS 16 health check passed. Backend menunggu PostgreSQL, menjalankan migrasi Alembic (001_create_tables), lalu start uvicorn. Frontend standalone production build kompil (0 error, 4 routes). **Catatan**: Ada issue port 3000 sudah terpakai oleh proses `node` PID 8843 (dari sesi development sebelumnya) — diatasi dengan `kill -9` lalu `docker compose up -d frontend`.
+  - **Step 3 — `curl http://localhost:8000/health`**: ✅ PASS — Response 200:
+    ```json
+    {"status": "ok", "database": "connected", "app": "KidecoIQ API", "version": "0.1.0"}
+    ```
+  - **Step 4 — `curl http://localhost:8000/reklamasi/zones`**: ✅ PASS — 5 zona direturn, semuanya dengan nama mengandung "Roto Samurangau" (Sektor A/B/C/D + Buffer Zone). Status 200.
+  - **Step 5 — `curl http://localhost:8000/operasional/alerts`**: ✅ PASS — 10 alerts direturn (3 high-risk: EX-001, HD-002, HD-004; 7 medium-risk). Status 200.
+  - **Step 6 — `curl http://localhost:3000`**: ✅ PASS — Frontend Next.js merespons dengan title `<title>KidecoIQ - AI-Driven Operational Excellence</title>` dan redirect ke `/reklamasi`.
+  - **Verifikasi tambahan**: Proxy Next.js (`/api/*` → `http://backend:8000`) berfungsi — `curl http://localhost:3000/api/reklamasi/zones` return 5 zones, `curl http://localhost:3000/api/operasional/fleet` return 10 units.
+  - **Log backend**: 0 error. Migrasi berjalan sukses (alembic upgrade 001_create_tables). Semua endpoint 200 OK.
+- File yang diubah/dibuat:
+  - `README.md` (DIUPDATE — perbaiki format command Docker)
+  - `PROGRESS.md` (entri baru ini)
+- Status: **Docker end-to-end VERIFIED**. Semua 6 step PASS.
+- Durasi total verifikasi: ~15 menit (termasuk waktu build dan install dependencies).
+- Keputusan/asumsi baru yang diambil: Tidak ada.
+- Yang BELUM selesai / blocker: Tidak ada.
+- Pesan untuk agent lain:
+  - **lead/frontend**: Jika ada perubahan pada kode yang mempengaruhi build time atau port mappings, pastikan untuk menguji `docker compose up --build` sebelum merge.
+  - **semua agent**: Docker compose sudah terverifikasi dari nol. Gunakan `docker compose down -v` untuk reset total sebelum demo.
