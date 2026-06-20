@@ -7,13 +7,14 @@ Menggunakan in-memory data_store (MVP). Saat PostgreSQL tersedia,
 cukup ganti body fungsi dengan SQLAlchemy queries.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
 from app.modules.reklamasi import data_store
 from app.modules.reklamasi.schemas import (
     ZoneResponse,
     ZoneHistoryResponse,
     ReportResponse,
+    ZoneCreateRequest,
 )
 
 router = APIRouter(prefix="/reklamasi", tags=["Reklamasi"])
@@ -28,6 +29,47 @@ async def get_zones():
     """
     zones = data_store.get_all_zones()
     return [ZoneResponse(**z) for z in zones]
+
+
+@router.post("/zones", response_model=ZoneResponse, status_code=status.HTTP_201_CREATED)
+async def create_zone(body: ZoneCreateRequest):
+    """
+    Tambah zona reklamasi baru.
+
+    Menerima nama zona dan bounding box (sudut barat-daya dan timur-laut),
+    kemudian menghasilkan data NDVI sintetis untuk zona tersebut.
+
+    Args:
+        body: JSON body dengan field name, southwest_lat/lng, northeast_lat/lng.
+
+    Returns:
+        ZoneResponse dari zona yang baru dibuat.
+
+    Raises:
+        409: Jika nama zona sudah ada.
+        422: Jika validasi bounding box gagal.
+    """
+    # Validate bounding box order
+    if body.southwest_lat >= body.northeast_lat:
+        raise HTTPException(
+            status_code=422,
+            detail="southwest_lat must be less than northeast_lat",
+        )
+    if body.southwest_lng >= body.northeast_lng:
+        raise HTTPException(
+            status_code=422,
+            detail="southwest_lng must be less than northeast_lng",
+        )
+
+    try:
+        zone = data_store.add_zone(body.model_dump())
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+
+    return ZoneResponse(**zone)
 
 
 @router.get("/zones/{zone_id}/history", response_model=ZoneHistoryResponse)

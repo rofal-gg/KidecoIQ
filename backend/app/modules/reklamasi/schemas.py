@@ -58,6 +58,20 @@ class ZoneReportItem(BaseModel):
     risk_flag: bool = Field(description="True jika tren NDVI menurun atau status kritis")
 
 
+class ZoneCreateRequest(BaseModel):
+    """Request body untuk membuat zona reklamasi baru."""
+    name: str = Field(..., min_length=1, max_length=200,
+                      description="Nama zona reklamasi yang akan ditambahkan")
+    southwest_lat: float = Field(..., ge=-90, le=90,
+                                 description="Latitude sudut barat-daya bounding box")
+    southwest_lng: float = Field(..., ge=-180, le=180,
+                                 description="Longitude sudut barat-daya bounding box")
+    northeast_lat: float = Field(..., ge=-90, le=90,
+                                 description="Latitude sudut timur-laut bounding box")
+    northeast_lng: float = Field(..., ge=-180, le=180,
+                                 description="Longitude sudut timur-laut bounding box")
+
+
 class ReportResponse(BaseModel):
     """Laporan kepatuhan reklamasi komprehensif."""
     generated_at: datetime

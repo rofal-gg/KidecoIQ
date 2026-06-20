@@ -24,6 +24,7 @@ from app.modules.reklamasi.schemas import (
     ZoneHistoryResponse,
     ReportResponse,
     HistoryPoint,
+    ZoneCreateRequest,
 )
 
 
@@ -132,6 +133,26 @@ class TestGetZones:
                 f"Zone {z['id']}: trend_prediction='{z['trend_prediction']}' "
                 f"not in {valid_trends}"
             )
+
+    def test_zone_id_is_deterministic_slug(self, client):
+        """zone_id harus slug deterministik dari nama zona, bukan uuid acak."""
+        resp = client.get("/reklamasi/zones")
+        data = resp.json()
+        for z in data:
+            expected_id = z["name"].lower().strip()
+            expected_id = __import__("re").sub(r"[^a-z0-9\s-]", "", expected_id)
+            expected_id = __import__("re").sub(r"[\s-]+", "-", expected_id).strip("-")
+            assert z["id"] == expected_id, (
+                f"Zone '{z['name']}': id='{z['id']}' != expected slug '{expected_id}'"
+            )
+
+    def test_zone_id_consistent_across_calls(self, client):
+        """zone_id harus sama setiap kali GET dipanggil."""
+        resp1 = client.get("/reklamasi/zones")
+        resp2 = client.get("/reklamasi/zones")
+        ids1 = [z["id"] for z in resp1.json()]
+        ids2 = [z["id"] for z in resp2.json()]
+        assert ids1 == ids2, "Zone IDs changed between API calls (not deterministic)"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -331,3 +352,118 @@ class TestGetReport:
         data = resp.json()
         # With 4 zones: best=400, worst=40 → score range 10-100
         assert 10.0 <= data["compliance_score"] <= 100.0
+
+
+# ══════════════════════════════════════════════════════════════
+#  TEST GROUP 4: POST /reklamasi/zones
+# ══════════════════════════════════════════════════════════════
+
+class TestCreateZone:
+    """Validasi endpoint POST /reklamasi/zones."""
+
+    # Each test uses a unique zone name to avoid conflicts from mutable state
+
+    def test_create_zone_201(self, client):
+        """POST dengan data valid harus 201 Created."""
+        resp = client.post("/reklamasi/zones", json={
+            "name": "POST 201 Test Zone",
+            "southwest_lat": -1.12,
+            "southwest_lng": 116.67,
+            "northeast_lat": -1.09,
+            "northeast_lng": 116.70,
+        })
+        assert resp.status_code == 201
+
+    def test_create_zone_returns_zone(self, client):
+        """Response harus valid ZoneResponse."""
+        resp = client.post("/reklamasi/zones", json={
+            "name": "POST Returns Zone",
+            "southwest_lat": -1.12,
+            "southwest_lng": 116.67,
+            "northeast_lat": -1.09,
+            "northeast_lng": 116.70,
+        })
+        assert resp.status_code == 201
+        data = resp.json()
+        zone = ZoneResponse(**data)
+        assert zone.name == "POST Returns Zone"
+        assert zone.southwest_lat == -1.12
+        assert zone.northeast_lat == -1.09
+        assert zone.id == "post-returns-zone"  # deterministic slug
+
+    def test_create_zone_appears_in_get(self, client):
+        """Zona baru harus muncul di GET /reklamasi/zones."""
+        resp = client.post("/reklamasi/zones", json={
+            "name": "Zone Untuk Get Check - Unique",
+            "southwest_lat": -1.13,
+            "southwest_lng": 116.66,
+            "northeast_lat": -1.10,
+            "northeast_lng": 116.69,
+        })
+        assert resp.status_code == 201
+        new_id = resp.json()["id"]
+
+        resp_get = client.get("/reklamasi/zones")
+        ids = [z["id"] for z in resp_get.json()]
+        assert new_id in ids, (
+            f"New zone id '{new_id}' not found in GET /reklamasi/zones"
+        )
+
+    def test_create_zone_duplicate_name_409(self, client):
+        """POST dengan nama yang sudah ada harus 409 Conflict."""
+        name = "Duplicate Zone Name - 409 Test"
+        # First POST should succeed
+        resp1 = client.post("/reklamasi/zones", json={
+            "name": name,
+            "southwest_lat": -1.12,
+            "southwest_lng": 116.67,
+            "northeast_lat": -1.09,
+            "northeast_lng": 116.70,
+        })
+        assert resp1.status_code == 201
+
+        # Second POST with same name should 409
+        resp2 = client.post("/reklamasi/zones", json={
+            "name": name,
+            "southwest_lat": -1.12,
+            "southwest_lng": 116.67,
+            "northeast_lat": -1.09,
+            "northeast_lng": 116.70,
+        })
+        assert resp2.status_code == 409
+
+    def test_create_zone_invalid_bounds_422(self, client):
+        """POST dengan south > north harus 422."""
+        resp = client.post("/reklamasi/zones", json={
+            "name": "Invalid Bounds Zone",
+            "southwest_lat": -1.0,
+            "southwest_lng": 116.70,
+            "northeast_lat": -1.5,  # south of southwest_lat → invalid
+            "northeast_lng": 116.80,
+        })
+        assert resp.status_code == 422
+
+    def test_create_zone_missing_name_422(self, client):
+        """POST tanpa field name harus 422."""
+        resp = client.post("/reklamasi/zones", json={
+            "southwest_lat": -1.12,
+            "southwest_lng": 116.67,
+            "northeast_lat": -1.09,
+            "northeast_lng": 116.70,
+        })
+        assert resp.status_code == 422
+
+    def test_create_zone_id_deterministic(self, client):
+        """Zone ID harus deterministik dari nama (konsisten antar POST)."""
+        resp = client.post("/reklamasi/zones", json={
+            "name": "Deterministic Test",
+            "southwest_lat": -1.14,
+            "southwest_lng": 116.65,
+            "northeast_lat": -1.11,
+            "northeast_lng": 116.68,
+        })
+        assert resp.status_code == 201
+        zone_id = resp.json()["id"]
+        assert zone_id == "deterministic-test", (
+            f"Expected 'deterministic-test', got '{zone_id}'"
+        )

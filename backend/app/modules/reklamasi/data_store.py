@@ -7,7 +7,7 @@ dan menyediakan data zona + history untuk endpoint API.
 Ketika PostgreSQL tersedia, layer ini akan diganti dengan SQLAlchemy queries.
 """
 
-import uuid
+import re
 import os
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional
@@ -64,6 +64,21 @@ ZONE_BOUNDS = [
 
 TREND_SLOPE_THRESHOLD: float = 0.005  # minimum slope to be considered "increasing"
 TREND_DAYS: int = 30  # prediction horizon in days
+
+
+def _name_to_id(name: str) -> str:
+    """
+    Convert a zone name to a deterministic, URL-safe slug ID.
+
+    Examples:
+        "Roto Samurangau - Sektor A" → "roto-samurangau-sektor-a"
+        "Test Zone 1" → "test-zone-1"
+    """
+    slug = name.lower().strip()
+    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
+    slug = re.sub(r"[\s-]+", "-", slug)
+    slug = slug.strip("-")
+    return slug
 
 
 def predict_ndvi_trend(history_values: list[float]) -> str:
@@ -173,7 +188,7 @@ def _init_data():
     _zone_history = {}
 
     for i, (h0, h1, w0, w1) in enumerate(quadrants):
-        zone_id = str(uuid.uuid4())
+        zone_id = _name_to_id(ZONE_NAMES[i])
         stats = _compute_quadrant_stats(
             ndvi_arr, codes_arr, veg_mask_arr, h0, h1, w0, w1
         )
@@ -336,6 +351,64 @@ def generate_report() -> dict:
         "compliance_score": compliance_score,
         "zones": report_zones,
     }
+
+
+def add_zone(data: dict) -> dict:
+    """
+    Add a new reclamation zone with auto-generated NDVI data.
+
+    Args:
+        data: Dict with keys:
+            - ``name`` (str, required): Zone display name.
+            - ``southwest_lat``, ``southwest_lng`` (float, required)
+            - ``northeast_lat``, ``northeast_lng`` (float, required)
+
+    Returns:
+        The newly created zone dict.
+
+    Raises:
+        ValueError: If a zone with the generated ID already exists.
+    """
+    zone_id = _name_to_id(data["name"])
+    if get_zone_by_id(zone_id) is not None:
+        raise ValueError(f"Zone with name '{data['name']}' already exists")
+
+    # Generate plausible NDVI data from a deterministic seed
+    rng = np.random.default_rng(hash(zone_id) % 2 ** 32)
+    ndvi_value = rng.uniform(0.15, 0.55)
+
+    from app.modules.reklamasi.ndvi import classify_ndvi, CLASS_MAP
+    class_code = int(classify_ndvi(np.array([[ndvi_value]]))[0, 0])
+    status = CLASS_MAP.get(class_code, "unknown")
+
+    # Estimate vegetation cover proportionally from NDVI
+    veg_pct = max(0.0, min(100.0, (ndvi_value / 0.6) * 100))
+
+    zone = {
+        "id": zone_id,
+        "name": data["name"],
+        "status": status,
+        "ndvi_latest": round(ndvi_value, 4),
+        "area_ha": 10.0,  # default area for user-created zones
+        "vegetation_cover_pct": round(veg_pct, 2),
+        "trend_prediction": "stabil",
+        "updated_at": datetime.now(timezone.utc),
+        "southwest_lat": data["southwest_lat"],
+        "southwest_lng": data["southwest_lng"],
+        "northeast_lat": data["northeast_lat"],
+        "northeast_lng": data["northeast_lng"],
+    }
+
+    # Generate history
+    history = _generate_history(zone_id, ndvi_value, status, veg_pct)
+    _zone_history[zone_id] = history
+
+    # Compute trend from history
+    history_ndvi_values = [h["ndvi_mean"] for h in history]
+    zone["trend_prediction"] = predict_ndvi_trend(history_ndvi_values)
+
+    _zones.append(zone)
+    return zone
 
 
 # ── Bootstrap on import ──────────────────────────────────────

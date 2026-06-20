@@ -550,3 +550,35 @@ Ringkasan checklist demo readiness:
 - Pesan untuk agent lain:
   - **lead/frontend**: Jika ada perubahan pada kode yang mempengaruhi build time atau port mappings, pastikan untuk menguji `docker compose up --build` sebelum merge.
   - **semua agent**: Docker compose sudah terverifikasi dari nol. Gunakan `docker compose down -v` untuk reset total sebelum demo.
+
+### [2026-06-20 12:30] agent: backend-reklamasi
+- Tugas dari TASKS.md yang dikerjakan: Bug fix — zone_id acak, POST endpoint baru, test deterministik
+- Yang sudah selesai:
+  - **Item 1 — Zone ID deterministik**: `data_store.py` ganti `str(uuid.uuid4())` → `_name_to_id(ZONE_NAMES[i])`. Fungsi `_name_to_id()` mengkonversi nama zona ke slug URL-safe (contoh: "Roto Samurangau - Sektor A" → "roto-samurangau-sektor-a"). Import `uuid` dihapus, diganti `import re`.
+  - **Item 2 — Bounds**: Sudah selesai oleh lead di sesi sebelumnya (2026-06-19 02:00) — `ZoneResponse` sudah punya `southwest_lat`, `southwest_lng`, `northeast_lat`, `northeast_lng`. Tidak ada perubahan baru.
+  - **Item 3 — POST /reklamasi/zones**: Endpoint baru menerima `ZoneCreateRequest` (name + 4 bounds), validasi bounding box order (422 jika south >= north), cek duplikasi nama (409 jika sudah ada), auto-generate NDVI sintetis dan history, return 201 + `ZoneResponse`.
+  - **Item 4 — Test**: 10 test baru (42 total di test_reklamasi_api.py):
+    - `test_zone_id_is_deterministic_slug` — zone_id adalah slug dari nama
+    - `test_zone_id_consistent_across_calls` — ID konsisten antar panggilan API
+    - `test_create_zone_201` — POST dengan data valid
+    - `test_create_zone_returns_zone` — Response valid ZoneResponse dengan slug ID
+    - `test_create_zone_appears_in_get` — Zona baru muncul di GET
+    - `test_create_zone_duplicate_name_409` — Duplikasi nama => 409
+    - `test_create_zone_invalid_bounds_422` — South > north => 422
+    - `test_create_zone_missing_name_422` — Missing field => 422
+    - `test_create_zone_id_deterministic` — ID dari POST juga slug deterministik
+  - **Verifikasi**: 112/112 tests PASSED (25 ndvi + 37 operasional + 42 reklamasi_api + 8 RF).
+- File yang diubah/dibuat:
+  - `backend/app/modules/reklamasi/data_store.py` — ganti `import uuid`→`import re`, tambah `_name_to_id()`, ganti `uuid.uuid4()`→`_name_to_id()`, tambah `add_zone()`
+  - `backend/app/modules/reklamasi/schemas.py` — tambah `ZoneCreateRequest`
+  - `backend/app/modules/reklamasi/router.py` — tambah `import status`, `ZoneCreateRequest`, POST `/zones` endpoint
+  - `backend/tests/test_reklamasi_api.py` — tambah 10 test (2 di TestGetZones + `TestCreateZone` 8 test)
+- Keputusan/asumsi baru diambil:
+  - `_name_to_id()` menghapus non-alphanumeric, collapse whitespace/hyphen → slug aman untuk URL
+  - `add_zone()` auto-generate NDVI dari `np.random.default_rng(hash(zone_id) % 2**32)` — konsisten dengan `_generate_history()` yang sudah ada
+  - Zone baru mendapat `area_ha: 10.0` sebagai default (dapat diubah nanti jika user bisa spesifik)
+- Yang BELUM selesai / blocker: Tidak ada.
+- Pesan untuk agent lain:
+  - **frontend**: `ZoneResponse` tidak berubah — masih 11 fields (id, name, status, ndvi_latest, area_ha, vegetation_cover_pct, trend_prediction, updated_at, 4 bounds). Field `id` sekarang slug (e.g. `"roto-samurangau-sektor-a"`) bukan UUID — jika ada komponen yang parsing UUID format, perlu update.
+  - **frontend**: Ada endpoint `POST /api/reklamasi/zones` baru jika ingin fitur tambah zona dari UI.
+  - **lead**: SPEC.md perlu ditambahkan entry Decision Log untuk `_name_to_id()` dan POST endpoint.
